@@ -19,13 +19,13 @@ gprefix READLINK readlink
 cd "$(dirname "$("$READLINK" -f "$0")")/.."
 
 # Allow user overrides to $MAKE. Typical usage for users who need it:
-#   MAKE=gmake ./zcutil/build.sh -j$(nproc)
+#   MAKE=gmake ./scripts/build.sh -j$(nproc)
 if [[ -z "${MAKE-}" ]]; then
     MAKE=make
 fi
 
 # Allow overrides to $BUILD and $HOST for porters. Most users will not need it.
-#   BUILD=i686-pc-linux-gnu ./zcutil/build.sh
+#   BUILD=i686-pc-linux-gnu ./scripts/build.sh
 if [[ -z "${BUILD-}" ]]; then
     BUILD="$(./depends/config.guess)"
 fi
@@ -103,5 +103,5 @@ ld -v
 
 HOST="$HOST" BUILD="$BUILD" "$MAKE" "$@" -C ./depends/ V=1
 ./autogen.sh
-CC="$CC" CXX="$CXX" ./configure --disable-wallet --prefix="${PREFIX}" --host="$HOST" --build="$BUILD" "$HARDENING_ARG" "$LCOV_ARG" "$TEST_ARG" "$MINING_ARG" $CONFIGURE_FLAGS --enable-werror CXXFLAGS='-g'
+CC="$CC" CXX="$CXX" ./configure --prefix="${PREFIX}" --host="$HOST" --build="$BUILD" "$HARDENING_ARG" "$LCOV_ARG" "$TEST_ARG" "$MINING_ARG" $CONFIGURE_FLAGS --enable-werror CXXFLAGS='-g'
 "$MAKE" "$@" V=1

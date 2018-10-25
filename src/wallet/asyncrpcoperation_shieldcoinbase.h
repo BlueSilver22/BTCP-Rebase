@@ -2,8 +2,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef ASYNCRPCOPERATION_SHIELDCOINBASE_H
-#define ASYNCRPCOPERATION_SHIELDCOINBASE_H
+#ifndef BITCOIN_WALLET_ASYNCRPCOPERATION_SHIELDCOINBASE_H
+#define BITCOIN_WALLET_ASYNCRPCOPERATION_SHIELDCOINBASE_H
 
 #include <asyncrpcoperation.h>
 #include <amount.h>
@@ -11,14 +11,14 @@
 #include <primitives/transaction.h>
 #include <zcash/JoinSplit.hpp>
 #include <zcash/Address.hpp>
-#include <wallet.h>
+#include <wallet/wallet.h>
 
 #include <unordered_map>
 #include <tuple>
 
 #include <univalue.h>
 
-#include <wallet/paymentdisclosure.h>
+#include <paymentdisclosure.h>
 
 // Default transaction fee if caller does not specify one.
 #define SHIELD_COINBASE_DEFAULT_MINERS_FEE   10000
@@ -125,4 +125,4 @@ public:
 };
 
 
-#endif /* ASYNCRPCOPERATION_SHIELDCOINBASE_H */
+#endif // BITCOIN_WALLET_ASYNCRPCOPERATION_SHIELDCOINBASE_H

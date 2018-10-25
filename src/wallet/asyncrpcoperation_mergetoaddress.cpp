@@ -12,8 +12,10 @@
 #include <miner.h>
 #include <net.h>
 #include <netbase.h>
+#include <paymentdisclosuredb.h>
 #include <rpc/protocol.h>
 #include <rpc/server.h>
+#include <rpc/rawtransaction.cpp>
 #include <script/interpreter.h>
 #include <sodium.h>
 #include <timedata.h>
@@ -23,13 +25,12 @@
 #include <wallet/wallet.h>
 #include <wallet/walletdb.h>
 #include <zcash/IncrementalMerkleTree.hpp>
+#include <key_io.h>
 
 #include <chrono>
 #include <iostream>
 #include <string>
 #include <thread>
-
-#include <wallet/paymentdisclosuredb.h>
 
 using namespace libzcash;
 
@@ -73,8 +74,8 @@ AsyncRPCOperation_mergetoaddress::AsyncRPCOperation_mergetoaddress(
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Recipient parameter missing");
     }
 
-    toTaddr_ = CBitcoinAddress(std::get<0>(recipient));
-    isToTaddr_ = toTaddr_.IsValid();
+    toTaddr_ = DecodeDestination(std::get<0>(recipient));
+    isToTaddr_ = IsValidDestination(toTaddr_);
     isToZaddr_ = false;
 
     if (!isToTaddr_) {
@@ -90,10 +91,10 @@ AsyncRPCOperation_mergetoaddress::AsyncRPCOperation_mergetoaddress(
     }
 
     // Log the context info i.e. the call parameters to z_mergetoaddress
-    if (LogAcceptCategory("zrpcunsafe")) {
-        LogPrint("zrpcunsafe", "%s: z_mergetoaddress initialized (params=%s)\n", getId(), contextInfo.write());
+    if (LogAcceptCategory(BCLog::ZRPCUNSAFE)) {
+        LogPrint(BCLog::ZRPCUNSAFE, "%s: z_mergetoaddress initialized (params=%s)\n", getId(), contextInfo.write());
     } else {
-        LogPrint("zrpc", "%s: z_mergetoaddress initialized\n", getId());
+        LogPrint(BCLog::ZRPC, "%s: z_mergetoaddress initialized\n", getId());
     }
 
     // Lock UTXOs
@@ -101,7 +102,7 @@ AsyncRPCOperation_mergetoaddress::AsyncRPCOperation_mergetoaddress(
     lock_notes();
 
     // Enable payment disclosure if requested
-    paymentDisclosureMode = fExperimentalMode && GetBoolArg("-paymentdisclosure", false);
+    paymentDisclosureMode = fExperimentalMode && gArgs.GetBoolArg("-paymentdisclosure", false);
 }
 
 AsyncRPCOperation_mergetoaddress::~AsyncRPCOperation_mergetoaddress()
@@ -120,14 +121,6 @@ void AsyncRPCOperation_mergetoaddress::main()
     start_execution_clock();
 
     bool success = false;
-
-#ifdef ENABLE_MINING
-#ifdef ENABLE_WALLET
-    GenerateBitcoins(false, NULL, 0);
-#else
-    GenerateBitcoins(false, 0);
-#endif
-#endif
 
     try {
         success = main_impl();
@@ -150,14 +143,6 @@ void AsyncRPCOperation_mergetoaddress::main()
         set_error_message("unknown error");
     }
 
-#ifdef ENABLE_MINING
-#ifdef ENABLE_WALLET
-    GenerateBitcoins(GetBoolArg("-gen", false), pwalletMain, GetArg("-genproclimit", 1));
-#else
-    GenerateBitcoins(GetBoolArg("-gen", false), GetArg("-genproclimit", 1));
-#endif
-#endif
-
     stop_execution_clock();
 
     if (success) {
@@ -172,7 +157,7 @@ void AsyncRPCOperation_mergetoaddress::main()
     } else {
         s += strprintf(", error=%s)\n", getErrorMessage());
     }
-    LogPrintf("%s", s);
+    LogPrintf("%s\n", s);
 
     unlock_utxos(); // clean up
     unlock_notes(); // clean up
@@ -184,9 +169,9 @@ void AsyncRPCOperation_mergetoaddress::main()
         for (PaymentDisclosureKeyInfo p : paymentDisclosureData_) {
             p.first.hash = txidhash;
             if (!db->Put(p.first, p.second)) {
-                LogPrint("paymentdisclosure", "%s: Payment Disclosure: Error writing entry to database for key %s\n", getId(), p.first.ToString());
+                LogPrint(BCLog::PAYMENTDISCLOSURE, "%s: Payment Disclosure: Error writing entry to database for key %s\n", getId(), p.first.ToString());
             } else {
-                LogPrint("paymentdisclosure", "%s: Payment Disclosure: Successfully added entry to database for key %s\n", getId(), p.first.ToString());
+                LogPrint(BCLog::PAYMENTDISCLOSURE, "%s: Payment Disclosure: Successfully added entry to database for key %s\n", getId(), p.first.ToString());
             }
         }
     }
@@ -206,7 +191,7 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
     size_t numInputs = utxoInputs_.size();
 
     // Check mempooltxinputlimit to avoid creating a transaction which the local mempool rejects
-    size_t limit = (size_t)GetArg("-mempooltxinputlimit", 0);
+    size_t limit = (size_t)gArgs.GetArg("-mempooltxinputlimit", 0);
     {
         LOCK(cs_main);
         if (NetworkUpgradeActive(chainActive.Height() + 1, Params().GetConsensus(), Consensus::UPGRADE_OVERWINTER)) {
@@ -246,22 +231,22 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
         rawTx.vin.push_back(in);
     }
     if (isToTaddr_) {
-        CScript scriptPubKey = GetScriptForDestination(toTaddr_.Get());
+        CScript scriptPubKey = GetScriptForDestination(toTaddr_);
         CTxOut out(sendAmount, scriptPubKey);
         rawTx.vout.push_back(out);
     }
     tx_ = CTransaction(rawTx);
 
-    LogPrint(isPureTaddrOnlyTx ? "zrpc" : "zrpcunsafe", "%s: spending %s to send %s with fee %s\n",
+    LogPrint(isPureTaddrOnlyTx ? BCLog::ZRPC : BCLog::ZRPCUNSAFE, "%s: spending %s to send %s with fee %s\n",
              getId(), FormatMoney(targetAmount), FormatMoney(sendAmount), FormatMoney(minersFee));
-    LogPrint("zrpc", "%s: transparent input: %s\n", getId(), FormatMoney(t_inputs_total));
-    LogPrint("zrpcunsafe", "%s: private input: %s\n", getId(), FormatMoney(z_inputs_total));
+    LogPrint(BCLog::ZRPC, "%s: transparent input: %s\n", getId(), FormatMoney(t_inputs_total));
+    LogPrint(BCLog::ZRPCUNSAFE, "%s: private input: %s\n", getId(), FormatMoney(z_inputs_total));
     if (isToTaddr_) {
-        LogPrint("zrpc", "%s: transparent output: %s\n", getId(), FormatMoney(sendAmount));
+        LogPrint(BCLog::ZRPC, "%s: transparent output: %s\n", getId(), FormatMoney(sendAmount));
     } else {
-        LogPrint("zrpcunsafe", "%s: private output: %s\n", getId(), FormatMoney(sendAmount));
+        LogPrint(BCLog::ZRPCUNSAFE, "%s: private output: %s\n", getId(), FormatMoney(sendAmount));
     }
-    LogPrint("zrpc", "%s: fee: %s\n", getId(), FormatMoney(minersFee));
+    LogPrint(BCLog::ZRPC, "%s: fee: %s\n", getId(), FormatMoney(minersFee));
 
     // Grab the current consensus branch ID
     {
@@ -278,7 +263,7 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
      */
     if (isPureTaddrOnlyTx) {
         UniValue obj(UniValue::VOBJ);
-        obj.push_back(Pair("rawtxn", EncodeHexTx(tx_)));
+        obj.pushKV("rawtxn", EncodeHexTx(tx_));
         sign_send_raw_transaction(obj);
         return true;
     }
@@ -453,7 +438,7 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
 
             // Decrypt the change note's ciphertext to retrieve some data we need
             ZCNoteDecryption decryptor(changeKey.receiving_key());
-            auto hSig = prevJoinSplit.h_sig(*pzcashParams, tx_.joinSplitPubKey);
+            auto hSig = prevJoinSplit.h_sig(pzcashParams.get(), tx_.joinSplitPubKey);
             try {
                 NotePlaintext plaintext = NotePlaintext::decrypt(
                     decryptor,
@@ -468,7 +453,7 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
 
                 jsInputValue += plaintext.value;
 
-                LogPrint("zrpcunsafe", "%s: spending change (amount=%s)\n",
+                LogPrint(BCLog::ZRPCUNSAFE, "%s: spending change (amount=%s)\n",
                          getId(),
                          FormatMoney(plaintext.value));
 
@@ -521,7 +506,7 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
                 wtxHeight = mapBlockIndex[wtx.hashBlock]->nHeight;
                 wtxDepth = wtx.GetDepthInMainChain();
             }
-            LogPrint("zrpcunsafe", "%s: spending note (txid=%s, vjoinsplit=%d, ciphertext=%d, amount=%s, height=%d, confirmations=%d)\n",
+            LogPrint(BCLog::ZRPCUNSAFE, "%s: spending note (txid=%s, vjoinsplit=%d, ciphertext=%d, amount=%s, height=%d, confirmations=%d)\n",
                      getId(),
                      jso.hash.ToString().substr(0, 10),
                      jso.js,
@@ -598,7 +583,7 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
             }
             info.vjsout.push_back(jso);
 
-            LogPrint("zrpcunsafe", "%s: generating note for %s (amount=%s)\n",
+            LogPrint(BCLog::ZRPCUNSAFE, "%s: generating note for %s (amount=%s)\n",
                      getId(),
                      outputType,
                      FormatMoney(jsChange));
@@ -635,7 +620,9 @@ void AsyncRPCOperation_mergetoaddress::sign_send_raw_transaction(UniValue obj)
 
     UniValue params = UniValue(UniValue::VARR);
     params.push_back(rawtxn);
-    UniValue signResultValue = signrawtransaction(params, false);
+    JSONRPCRequest jsonRequest;
+    jsonRequest.params = params;
+    UniValue signResultValue = signrawtransaction(jsonRequest);
     UniValue signResultObject = signResultValue.get_obj();
     UniValue completeValue = find_value(signResultObject, "complete");
     bool complete = completeValue.get_bool();
@@ -655,7 +642,9 @@ void AsyncRPCOperation_mergetoaddress::sign_send_raw_transaction(UniValue obj)
         params.clear();
         params.setArray();
         params.push_back(signedtxn);
-        UniValue sendResultValue = sendrawtransaction(params, false);
+        JSONRPCRequest jsonRequest;
+        jsonRequest.params = params;
+        UniValue sendResultValue = sendrawtransaction(jsonRequest);
         if (sendResultValue.isNull()) {
             throw JSONRPCError(RPC_WALLET_ERROR, "Send raw transaction did not return an error or a txid.");
         }
@@ -663,7 +652,7 @@ void AsyncRPCOperation_mergetoaddress::sign_send_raw_transaction(UniValue obj)
         std::string txid = sendResultValue.get_str();
 
         UniValue o(UniValue::VOBJ);
-        o.push_back(Pair("txid", txid));
+        o.pushKV("txid", txid);
         set_result(o);
     } else {
         // Test mode does not send the transaction to the network.
@@ -673,9 +662,9 @@ void AsyncRPCOperation_mergetoaddress::sign_send_raw_transaction(UniValue obj)
         stream >> tx;
 
         UniValue o(UniValue::VOBJ);
-        o.push_back(Pair("test", 1));
-        o.push_back(Pair("txid", tx.GetHash().ToString()));
-        o.push_back(Pair("hex", signedtxn));
+        o.pushKV("test", 1);
+        o.pushKV("txid", tx.GetHash().ToString());
+        o.pushKV("hex", signedtxn);
         set_result(o);
     }
 
@@ -749,7 +738,7 @@ UniValue AsyncRPCOperation_mergetoaddress::perform_joinsplit(
 
     CMutableTransaction mtx(tx_);
 
-    LogPrint("zrpcunsafe", "%s: creating joinsplit at index %d (vpub_old=%s, vpub_new=%s, in[0]=%s, in[1]=%s, out[0]=%s, out[1]=%s)\n",
+    LogPrint(BCLog::ZRPCUNSAFE, "%s: creating joinsplit at index %d (vpub_old=%s, vpub_new=%s, in[0]=%s, in[1]=%s, out[0]=%s, out[1]=%s)\n",
              getId(),
              tx_.vjoinsplit.size(),
              FormatMoney(info.vpub_old), FormatMoney(info.vpub_new),
@@ -759,13 +748,13 @@ UniValue AsyncRPCOperation_mergetoaddress::perform_joinsplit(
     // Generate the proof, this can take over a minute.
     std::array<libzcash::JSInput, ZC_NUM_JS_INPUTS> inputs{info.vjsin[0], info.vjsin[1]};
     std::array<libzcash::JSOutput, ZC_NUM_JS_OUTPUTS> outputs{info.vjsout[0], info.vjsout[1]};
-    std::array<size_t, ZC_NUM_JS_INPUTS> inputMap;
-    std::array<size_t, ZC_NUM_JS_OUTPUTS> outputMap;
+    std::array<uint64_t, ZC_NUM_JS_INPUTS> inputMap;
+    std::array<uint64_t, ZC_NUM_JS_OUTPUTS> outputMap;
 
     uint256 esk; // payment disclosure - secret
 
     JSDescription jsdesc = JSDescription::Randomized(
-        *pzcashParams,
+        pzcashParams.get(),
         joinSplitPubKey_,
         anchor,
         inputs,
@@ -778,7 +767,7 @@ UniValue AsyncRPCOperation_mergetoaddress::perform_joinsplit(
         &esk); // parameter expects pointer to esk, so pass in address
     {
         auto verifier = libzcash::ProofVerifier::Strict();
-        if (!(jsdesc.Verify(*pzcashParams, verifier, joinSplitPubKey_))) {
+        if (!(jsdesc.Verify(pzcashParams.get(), verifier, joinSplitPubKey_))) {
             throw std::runtime_error("error verifying joinsplit");
         }
     }
@@ -817,7 +806,7 @@ UniValue AsyncRPCOperation_mergetoaddress::perform_joinsplit(
         ss2 << ((unsigned char)0x00);
         ss2 << jsdesc.ephemeralKey;
         ss2 << jsdesc.ciphertexts[0];
-        ss2 << jsdesc.h_sig(*pzcashParams, joinSplitPubKey_);
+        ss2 << jsdesc.h_sig(pzcashParams.get(), joinSplitPubKey_);
 
         encryptedNote1 = HexStr(ss2.begin(), ss2.end());
     }
@@ -826,7 +815,7 @@ UniValue AsyncRPCOperation_mergetoaddress::perform_joinsplit(
         ss2 << ((unsigned char)0x01);
         ss2 << jsdesc.ephemeralKey;
         ss2 << jsdesc.ciphertexts[1];
-        ss2 << jsdesc.h_sig(*pzcashParams, joinSplitPubKey_);
+        ss2 << jsdesc.h_sig(pzcashParams.get(), joinSplitPubKey_);
 
         encryptedNote2 = HexStr(ss2.begin(), ss2.end());
     }
@@ -858,16 +847,16 @@ UniValue AsyncRPCOperation_mergetoaddress::perform_joinsplit(
         paymentDisclosureData_.push_back(PaymentDisclosureKeyInfo(pdKey, pdInfo));
 
         CZCPaymentAddress address(zaddr);
-        LogPrint("paymentdisclosure", "%s: Payment Disclosure: js=%d, n=%d, zaddr=%s\n", getId(), js_index, int(mapped_index), address.ToString());
+        LogPrint(BCLog::PAYMENTDISCLOSURE, "%s: Payment Disclosure: js=%d, n=%d, zaddr=%s\n", getId(), js_index, int(mapped_index), address.ToString());
     }
     // !!! Payment disclosure END
 
     UniValue obj(UniValue::VOBJ);
-    obj.push_back(Pair("encryptednote1", encryptedNote1));
-    obj.push_back(Pair("encryptednote2", encryptedNote2));
-    obj.push_back(Pair("rawtxn", HexStr(ss.begin(), ss.end())));
-    obj.push_back(Pair("inputmap", arrInputMap));
-    obj.push_back(Pair("outputmap", arrOutputMap));
+    obj.pushKV("encryptednote1", encryptedNote1);
+    obj.pushKV("encryptednote2", encryptedNote2);
+    obj.pushKV("rawtxn", HexStr(ss.begin(), ss.end()));
+    obj.pushKV("inputmap", arrInputMap);
+    obj.pushKV("outputmap", arrOutputMap);
     return obj;
 }
 
@@ -906,8 +895,8 @@ UniValue AsyncRPCOperation_mergetoaddress::getStatus() const
     }
 
     UniValue obj = v.get_obj();
-    obj.push_back(Pair("method", "z_mergetoaddress"));
-    obj.push_back(Pair("params", contextinfo_));
+    obj.pushKV("method", "z_mergetoaddress");
+    obj.pushKV("params", contextinfo_);
     return obj;
 }
 

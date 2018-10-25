@@ -33,8 +33,10 @@ buffering or reassembly.
 
 ## Prerequisites
 
-The ZeroMQ feature in Bitcoin Core requires ZeroMQ API version 4.x or
-newer. Typically, it is packaged by distributions as something like
+The ZeroMQ feature in Bitcoin Core requires the ZeroMQ API >= 4.0.0
+[libzmq](https://github.com/zeromq/libzmq/releases).
+For version information, see [dependencies.md](dependencies.md).
+Typically, it is packaged by distributions as something like
 *libzmq3-dev*. The C++ wrapper for ZeroMQ is *not* needed.
 
 In order to run the example Python client scripts in contrib/ one must
@@ -66,7 +68,7 @@ address. The same address can be used in more than one notification.
 
 For instance:
 
-    $ bitcoind -zmqpubhashtx=tcp://127.0.0.1:28332 \
+    $ bitcoind -zmqpubhashtx=tcp://127.0.0.1:27932 \
                -zmqpubrawtx=ipc:///tmp/bitcoind.tx.raw
 
 Each PUB notification has a topic and body, where the header

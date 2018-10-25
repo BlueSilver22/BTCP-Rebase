@@ -2,8 +2,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef ASYNCRPCOPERATION_SENDMANY_H
-#define ASYNCRPCOPERATION_SENDMANY_H
+#ifndef BITCOIN_WALLET_ASYNCRPCOPERATION_SENDMANY_H
+#define BITCOIN_WALLET_ASYNCRPCOPERATION_SENDMANY_H
 
 #include <asyncrpcoperation.h>
 #include <amount.h>
@@ -11,7 +11,7 @@
 #include <primitives/transaction.h>
 #include <zcash/JoinSplit.hpp>
 #include <zcash/Address.hpp>
-#include <wallet.h>
+#include <wallet/wallet.h>
 #include <paymentdisclosure.h>
 
 #include <unordered_map>
@@ -79,7 +79,7 @@ private:
     std::string fromaddress_;
     bool isfromtaddr_;
     bool isfromzaddr_;
-    CBitcoinAddress fromtaddr_;
+    CTxDestination fromtaddr_;
     PaymentAddress frompaymentaddress_;
     SpendingKey spendingkey_;
 
@@ -189,4 +189,4 @@ public:
 };
 
 
-#endif /* ASYNCRPCOPERATION_SENDMANY_H */
+#endif // BITCOIN_WALLET_ASYNCRPCOPERATION_SENDMANY_H

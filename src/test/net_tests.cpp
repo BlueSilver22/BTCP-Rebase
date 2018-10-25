@@ -1,4 +1,4 @@
-// Copyright (c) 2012-2017 The Bitcoin Core developers
+// Copyright (c) 2012-2018 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 #include <addrman.h>
@@ -89,17 +89,18 @@ BOOST_AUTO_TEST_CASE(cnode_listen_port)
 
 BOOST_AUTO_TEST_CASE(caddrdb_read)
 {
+    SetDataDir("caddrdb_read");
     CAddrManUncorrupted addrmanUncorrupted;
     addrmanUncorrupted.MakeDeterministic();
 
     CService addr1, addr2, addr3;
-    Lookup("250.7.1.1", addr1, 8333, false);
+    Lookup("250.7.1.1", addr1, 7933, false);
     Lookup("250.7.2.2", addr2, 9999, false);
     Lookup("250.7.3.3", addr3, 9999, false);
 
     // Add three addresses to new table.
     CService source;
-    Lookup("252.5.1.1", source, 8333, false);
+    Lookup("252.5.1.1", source, 7933, false);
     addrmanUncorrupted.Add(CAddress(addr1, NODE_NONE), source);
     addrmanUncorrupted.Add(CAddress(addr2, NODE_NONE), source);
     addrmanUncorrupted.Add(CAddress(addr3, NODE_NONE), source);
@@ -114,7 +115,7 @@ BOOST_AUTO_TEST_CASE(caddrdb_read)
         unsigned char pchMsgTmp[4];
         ssPeers1 >> pchMsgTmp;
         ssPeers1 >> addrman1;
-    } catch (const std::exception& e) {
+    } catch (const std::exception&) {
         exceptionThrown = true;
     }
 
@@ -134,6 +135,7 @@ BOOST_AUTO_TEST_CASE(caddrdb_read)
 
 BOOST_AUTO_TEST_CASE(caddrdb_read_corrupted)
 {
+    SetDataDir("caddrdb_read_corrupted");
     CAddrManCorrupted addrmanCorrupted;
     addrmanCorrupted.MakeDeterministic();
 
@@ -146,7 +148,7 @@ BOOST_AUTO_TEST_CASE(caddrdb_read_corrupted)
         unsigned char pchMsgTmp[4];
         ssPeers1 >> pchMsgTmp;
         ssPeers1 >> addrman1;
-    } catch (const std::exception& e) {
+    } catch (const std::exception&) {
         exceptionThrown = true;
     }
     // Even through de-serialization failed addrman is not left in a clean state.
@@ -171,18 +173,18 @@ BOOST_AUTO_TEST_CASE(cnode_simple_test)
 
     in_addr ipv4Addr;
     ipv4Addr.s_addr = 0xa0b0c001;
-    
+
     CAddress addr = CAddress(CService(ipv4Addr, 7777), NODE_NETWORK);
     std::string pszDest;
     bool fInboundIn = false;
 
     // Test that fFeeler is false by default.
-    std::unique_ptr<CNode> pnode1(new CNode(id++, NODE_NETWORK, height, hSocket, addr, 0, 0, CAddress(), pszDest, fInboundIn));
+    std::unique_ptr<CNode> pnode1 = MakeUnique<CNode>(id++, NODE_NETWORK, height, hSocket, addr, 0, 0, CAddress(), pszDest, fInboundIn);
     BOOST_CHECK(pnode1->fInbound == false);
     BOOST_CHECK(pnode1->fFeeler == false);
 
     fInboundIn = true;
-    std::unique_ptr<CNode> pnode2(new CNode(id++, NODE_NETWORK, height, hSocket, addr, 1, 1, CAddress(), pszDest, fInboundIn));
+    std::unique_ptr<CNode> pnode2 = MakeUnique<CNode>(id++, NODE_NETWORK, height, hSocket, addr, 1, 1, CAddress(), pszDest, fInboundIn);
     BOOST_CHECK(pnode2->fInbound == true);
     BOOST_CHECK(pnode2->fFeeler == false);
 }

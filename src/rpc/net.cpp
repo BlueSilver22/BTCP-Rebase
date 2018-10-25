@@ -1,4 +1,4 @@
-// Copyright (c) 2009-2017 The Bitcoin Core developers
+// Copyright (c) 2009-2018 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -102,6 +102,7 @@ static UniValue getpeerinfo(const JSONRPCRequest& request)
             "       ...\n"
             "    ],\n"
             "    \"whitelisted\": true|false, (boolean) Whether the peer is whitelisted\n"
+            "    \"minfeefilter\": n,         (numeric) The minimum fee rate for transactions this peer accepts\n"
             "    \"bytessent_per_msg\": {\n"
             "       \"addr\": n,              (numeric) The total bytes sent aggregated by message type\n"
             "       ...\n"
@@ -163,12 +164,13 @@ static UniValue getpeerinfo(const JSONRPCRequest& request)
             obj.pushKV("synced_headers", statestats.nSyncHeight);
             obj.pushKV("synced_blocks", statestats.nCommonHeight);
             UniValue heights(UniValue::VARR);
-            for (int height : statestats.vHeightInFlight) {
+            for (const int height : statestats.vHeightInFlight) {
                 heights.push_back(height);
             }
             obj.pushKV("inflight", heights);
         }
         obj.pushKV("whitelisted", stats.fWhitelisted);
+        obj.pushKV("minfeefilter", ValueFromAmount(stats.minFeeFilter));
 
         UniValue sendPerMsgCmd(UniValue::VOBJ);
         for (const mapMsgCmdSize::value_type &i : stats.mapSendBytesPerMsgCmd) {
@@ -207,8 +209,8 @@ static UniValue addnode(const JSONRPCRequest& request)
             "1. \"node\"     (string, required) The node (see getpeerinfo for nodes)\n"
             "2. \"command\"  (string, required) 'add' to add a node to the list, 'remove' to remove a node from the list, 'onetry' to try a connection to the node once\n"
             "\nExamples:\n"
-            + HelpExampleCli("addnode", "\"192.168.0.6:8333\" \"onetry\"")
-            + HelpExampleRpc("addnode", "\"192.168.0.6:8333\", \"onetry\"")
+            + HelpExampleCli("addnode", "\"192.168.0.6:7933\" \"onetry\"")
+            + HelpExampleRpc("addnode", "\"192.168.0.6:7933\", \"onetry\"")
         );
 
     if(!g_connman)
@@ -249,9 +251,9 @@ static UniValue disconnectnode(const JSONRPCRequest& request)
             "1. \"address\"     (string, optional) The IP address/port of the node\n"
             "2. \"nodeid\"      (number, optional) The node ID (see getpeerinfo for node IDs)\n"
             "\nExamples:\n"
-            + HelpExampleCli("disconnectnode", "\"192.168.0.6:8333\"")
+            + HelpExampleCli("disconnectnode", "\"192.168.0.6:7933\"")
             + HelpExampleCli("disconnectnode", "\"\" 1")
-            + HelpExampleRpc("disconnectnode", "\"192.168.0.6:8333\"")
+            + HelpExampleRpc("disconnectnode", "\"192.168.0.6:7933\"")
             + HelpExampleRpc("disconnectnode", "\"\", 1")
         );
 
@@ -296,7 +298,7 @@ static UniValue getaddednodeinfo(const JSONRPCRequest& request)
             "    \"connected\" : true|false,          (boolean) If connected\n"
             "    \"addresses\" : [                    (list of objects) Only when connected = true\n"
             "       {\n"
-            "         \"address\" : \"192.168.0.201:8333\",  (string) The bitcoin server IP and port we're connected to\n"
+            "         \"address\" : \"192.168.0.201:7933\",  (string) The bitcoin server IP and port we're connected to\n"
             "         \"connected\" : \"outbound\"           (string) connection, inbound or outbound\n"
             "       }\n"
             "     ]\n"
@@ -475,7 +477,7 @@ static UniValue getnetworkinfo(const JSONRPCRequest& request)
     UniValue localAddresses(UniValue::VARR);
     {
         LOCK(cs_mapLocalHost);
-        for (const std::pair<CNetAddr, LocalServiceInfo> &item : mapLocalHost)
+        for (const std::pair<const CNetAddr, LocalServiceInfo> &item : mapLocalHost)
         {
             UniValue rec(UniValue::VOBJ);
             rec.pushKV("address", item.first.ToString());
@@ -624,6 +626,59 @@ static UniValue setnetworkactive(const JSONRPCRequest& request)
     return g_connman->GetNetworkActive();
 }
 
+static UniValue getnodeaddresses(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() > 1) {
+        throw std::runtime_error(
+            "getnodeaddresses ( count )\n"
+            "\nReturn known addresses which can potentially be used to find new nodes in the network\n"
+            "\nArguments:\n"
+            "1. \"count\"    (numeric, optional) How many addresses to return. Limited to the smaller of " + std::to_string(ADDRMAN_GETADDR_MAX) +
+                " or " + std::to_string(ADDRMAN_GETADDR_MAX_PCT) + "% of all known addresses. (default = 1)\n"
+            "\nResult:\n"
+            "[\n"
+            "  {\n"
+            "    \"time\": ttt,                (numeric) Timestamp in seconds since epoch (Jan 1 1970 GMT) keeping track of when the node was last seen\n"
+            "    \"services\": n,              (numeric) The services offered\n"
+            "    \"address\": \"host\",          (string) The address of the node\n"
+            "    \"port\": n                   (numeric) The port of the node\n"
+            "  }\n"
+            "  ,....\n"
+            "]\n"
+            "\nExamples:\n"
+            + HelpExampleCli("getnodeaddresses", "8")
+            + HelpExampleRpc("getnodeaddresses", "8")
+        );
+    }
+    if (!g_connman) {
+        throw JSONRPCError(RPC_CLIENT_P2P_DISABLED, "Error: Peer-to-peer functionality missing or disabled");
+    }
+
+    int count = 1;
+    if (!request.params[0].isNull()) {
+        count = request.params[0].get_int();
+        if (count <= 0) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Address count out of range");
+        }
+    }
+    // returns a shuffled list of CAddress
+    std::vector<CAddress> vAddr = g_connman->GetAddresses();
+    UniValue ret(UniValue::VARR);
+
+    int address_return_count = std::min<int>(count, vAddr.size());
+    for (int i = 0; i < address_return_count; ++i) {
+        UniValue obj(UniValue::VOBJ);
+        const CAddress& addr = vAddr[i];
+        obj.pushKV("time", (int)addr.nTime);
+        obj.pushKV("services", (uint64_t)addr.nServices);
+        obj.pushKV("address", addr.ToStringIP());
+        obj.pushKV("port", addr.GetPort());
+        ret.push_back(obj);
+    }
+    return ret;
+}
+
+// clang-format off
 static const CRPCCommand commands[] =
 { //  category              name                      actor (function)         argNames
   //  --------------------- ------------------------  -----------------------  ----------
@@ -639,7 +694,9 @@ static const CRPCCommand commands[] =
     { "network",            "listbanned",             &listbanned,             {} },
     { "network",            "clearbanned",            &clearbanned,            {} },
     { "network",            "setnetworkactive",       &setnetworkactive,       {"state"} },
+    { "network",            "getnodeaddresses",       &getnodeaddresses,       {"count"} },
 };
+// clang-format on
 
 void RegisterNetRPCCommands(CRPCTable &t)
 {

@@ -1,10 +1,16 @@
-#ifndef ZC_NOTE_H_
-#define ZC_NOTE_H_
+// Copyright (c) 2018 The Bitcoin Private developers
+// Copyright (c) 2016 The Zcash developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+#ifndef BITCOIN_ZCASH_NOTE_H
+#define BITCOIN_ZCASH_NOTE_H
 
 #include "uint256.h"
 #include "Zcash.h"
 #include "Address.hpp"
 #include "NoteEncryption.hpp"
+#include <array>
 
 namespace libzcash {
 
@@ -68,4 +74,4 @@ public:
 
 }
 
-#endif // ZC_NOTE_H_
+#endif // BITCOIN_ZCASH_NOTE_H

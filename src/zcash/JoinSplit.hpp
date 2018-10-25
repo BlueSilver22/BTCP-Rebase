@@ -1,5 +1,10 @@
-#ifndef ZC_JOINSPLIT_H_
-#define ZC_JOINSPLIT_H_
+// Copyright (c) 2018 The Bitcoin Private developers
+// Copyright (c) 2016 The Zcash developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+#ifndef BITCOIN_ZCASH_JOINSPLIT_H
+#define BITCOIN_ZCASH_JOINSPLIT_H
 
 #include "Zcash.h"
 #include "Proof.hpp"
@@ -11,7 +16,7 @@
 #include "uint256.h"
 #include "uint252.h"
 
-#include <boost/array.hpp>
+#include <array>
 
 namespace libzcash {
 
@@ -102,4 +107,4 @@ protected:
 typedef libzcash::JoinSplit<ZC_NUM_JS_INPUTS,
                             ZC_NUM_JS_OUTPUTS> ZCJoinSplit;
 
-#endif // ZC_JOINSPLIT_H_
+#endif // BITCOIN_ZCASH_JOINSPLIT_H
